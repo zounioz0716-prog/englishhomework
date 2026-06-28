@@ -2592,7 +2592,7 @@ function showExternalGuide(){
 function closeWelcome(){document.getElementById("welcomeModal").classList.remove("show");}
 
 /* ================= AI 회화 튜터 ================= */
-const AI_ENDPOINT=""; // Vercel 배포 후 https://...vercel.app/api/tutor 주소 입력
+const AI_ENDPOINT="https://englishhomework-five.vercel.app/api/tutor"; // Vercel(미국)
 let AI_MSGS=[], AI_SYS="", AI_BUSY=false, AI_BLOCKED=false;
 function enOnly(t){ return String(t).replace(/\([^)]*\)/g," ").replace(/[가-힣]/g," ").replace(/\s+/g," ").trim()||String(t); }
 function escapeHtml(t){ return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>"); }

@@ -9,7 +9,7 @@
  *
  * 클로드 키는 Vercel 환경변수에만 들어가고 코드/사이트에는 노출되지 않습니다.
  */
-const ALLOW = ["https://weirdenglish.co.kr", "http://localhost", "http://127.0.0.1"];
+const ALLOW = ["https://zounioz0716-prog.github.io", "http://localhost", "http://127.0.0.1"];
 const MODEL = "claude-haiku-4-5";
 
 module.exports = async (req, res) => {

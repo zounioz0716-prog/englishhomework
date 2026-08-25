@@ -24,7 +24,11 @@
 <meta name="apple-mobile-web-app-title" content="김규리쌤 공부방">
 <link rel="icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
+<!-- 폰트·클라우드 서버에 미리 연결(handshake) → 첫 로딩 지연 감소 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
 <style>
 :root{
   --g:#00C9A7;--g2:#009E84;--g3:#E0FAF5;
@@ -410,8 +414,8 @@ body{font-size:16px}
     <div id="noStudent" class="card hidden">
       <div class="eyebrow"><span class="dot"></span>학생 숙제방</div>
       <h2 style="font-size:20px;font-weight:900;margin:14px 0 8px">선생님이 보내주신 링크로 들어와 주세요 🙏</h2>
-      <p class="muted">개인 숙제 링크를 통해 입장하면 매일 아침 오늘의 패턴 숙제가 자동으로 준비됩니다.</p>
-      <div style="margin-top:16px">
+      <p class="muted">개인 숙제 링크를 통해 입장하면 매일 아침 오늘의 패턴 숙제가 자동으로 준비됩니다.<br>링크가 열리지 않으면 선생님께 링크를 다시 요청해 주세요 🙂</p>
+      <div style="margin-top:16px" id="demoWrap" class="hidden">
         <p class="muted" style="margin-bottom:8px">미리 체험해 보고 싶다면:</p>
         <button class="btn ghost" onclick="loadDemo()">샘플 숙제 체험하기 →</button>
       </div>
@@ -498,7 +502,7 @@ body{font-size:16px}
               <div class="compare">
                 <div class="cmp-item">
                   <div class="ch">🗣️ 내 발음</div>
-                  <audio id="myAudio" controls></audio>
+                  <audio id="myAudio" playsinline webkit-playsinline controls></audio>
                 </div>
               </div>
               <button class="btn ghost sm" style="width:100%;margin-top:10px" onclick="resetRec()">↺ 다시 녹음</button>
@@ -610,6 +614,10 @@ body{font-size:16px}
 
       <div class="card">
         <div class="t-head"><h2>내 학생 <span class="muted" id="stuCount"></span></h2></div>
+        <div style="display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap">
+          <button class="btn sm ghost" onclick="manualRestore()">☁️ 클라우드에서 학생 불러오기</button>
+          <button class="btn sm ghost" onclick="restoreFromBoard()">🔎 숙제기록으로 명단 복구</button>
+        </div>
         <div class="stu-list" id="stuList"></div>
       </div>
     </div>
@@ -735,9 +743,9 @@ body{font-size:16px}
 </div>
 
 <!-- Firebase (실시간 진행/점수 동기화 + 선생님 대시보드) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
 /* =================================================================
    김규리쌤 공부방 · 데일리 숙제방
@@ -811,6 +819,20 @@ function mergeProg(local,cloud){
   return out;
 }
 // 학생 진입 시 클라우드에서 기록 불러와 화면 갱신
+function isBlockedCached(s){ try{ return !!localStorage.getItem("we_blk_"+studentId(s)); }catch(e){ return false; } }
+function showBlockScreen(){
+  try{ if(typeof closeAI==="function") closeAI(); }catch(e){}
+  try{ if(typeof closeWelcome==="function") closeWelcome(); }catch(e){}
+  var sr=document.getElementById("studyRoom"); if(sr)sr.classList.add("hidden");
+  var ns=document.getElementById("noStudent"); if(ns)ns.classList.add("hidden");
+  var b=document.getElementById("blockScreen");
+  if(!b){ b=document.createElement("div"); b.id="blockScreen"; b.className="card"; b.style.cssText="text-align:center;padding:44px 24px;margin-top:40px";
+    b.innerHTML='<div style="font-size:52px">🔒</div><h2 style="font-size:21px;font-weight:900;margin:14px 0 8px;color:var(--navy)">수강이 종료되었어요</h2><p class="muted" style="font-size:14px">지금은 이 링크로 접속할 수 없어요.<br>계속 학습을 원하시면 선생님께 문의해 주세요 🙏</p>';
+    var w=document.querySelector(".wrap"); if(w)w.appendChild(b);
+  }
+  b.classList.remove("hidden");
+}
+
 function cloudSync(s){
   if(!CLOUD||!DB) return;
   whenAuth().then(function(){
@@ -818,6 +840,7 @@ function cloudSync(s){
       DB.collection("students").doc(studentId(s)).get().then(function(doc){
         if(!doc.exists) return;
         const data=doc.data();
+        if(data.blocked){ try{localStorage.setItem("we_blk_"+studentId(s),"1");}catch(e){} showBlockScreen(); return; }
         if(typeof AI_BLOCKED!=="undefined") AI_BLOCKED=!!data.aiBlocked; // 선생님 차단 반영
         const cloud=data.prog;
         if(!cloud) return;
@@ -1579,22 +1602,59 @@ function getLib(){
   return lib;
 }
 
-/* ---------- 학생 설정 인코딩/디코딩 ---------- */
-function encodeStudent(o){return "s="+btoa(encodeURIComponent(JSON.stringify(o)));}
+/* ---------- 학생 설정 인코딩/디코딩 ----------
+   링크는 ?s= (쿼리) 형식 사용: #해시는 카톡/안드로이드 intent/홈화면 추가에서
+   잘려나가 "선생님 모드로 열리는" 사고가 있었음. 쿼리는 어디서도 안 잘림.
+   기존에 발급된 #s= 링크도 계속 인식 (하위 호환). */
+function b64e(str){return btoa(str).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");} // URL-safe
+function b64d(b){b=String(b).replace(/ /g,"+").replace(/-/g,"+").replace(/_/g,"/");while(b.length%4)b+="=";return atob(b);} // 메신저가 +를 공백으로 바꿔도 복구
+function encodeStudent(o){return "s="+b64e(encodeURIComponent(JSON.stringify(o)));}
 function decodeStudent(h){
-  try{const m=(h||"").replace(/^#/,"");if(!m.startsWith("s="))return null;
-    return JSON.parse(decodeURIComponent(atob(m.slice(2))));}catch(e){return null;}
+  try{const m=(h||"").replace(/^[#?]/,"");if(!m.startsWith("s="))return null;
+    return JSON.parse(decodeURIComponent(b64d(m.slice(2).split("&")[0])));}catch(e){return null;}
 }
-function studentLink(o){return location.origin+location.pathname+"#"+encodeStudent(o);}
+/* 현재 주소에서 학생 정보 읽기: ?s= 우선, 옛 #s= 링크도 지원 */
+function currentStudent(){
+  try{const q=new URLSearchParams(location.search).get("s");
+    if(q){const s=decodeStudent("s="+q); if(s) return s;}
+  }catch(e){}
+  return decodeStudent(location.hash);
+}
+function studentLink(o){return location.origin+location.pathname+"?"+encodeStudent(o);}
 
 /* ---------- 날짜/진행 ---------- */
+/* iOS 안전 날짜 파서: "2026-01-15" → Date (Safari는 T00:00:00 형식 파싱 실패 가능) */
+function parseYMD(v){
+  if(v instanceof Date) return isNaN(v)?null:v;
+  if(typeof v!=="string") return null;
+  const m=v.trim().match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+  if(!m) { const d=new Date(v); return isNaN(d)?null:d; }
+  return new Date(+m[1], +m[2]-1, +m[3], 0,0,0,0);
+}
 function dayNumber(startISO){
-  const s=new Date(startISO+"T00:00:00"); const n=new Date(); n.setHours(0,0,0,0); s.setHours(0,0,0,0);
-  return Math.max(1, Math.floor((n-s)/DAY)+1);
+  const s=parseYMD(startISO);
+  if(!s) return 1;                       // 시작일이 깨졌으면 1일차
+  const n=new Date(); n.setHours(0,0,0,0); s.setHours(0,0,0,0);
+  const base=Math.max(1, Math.floor((n-s)/DAY)+1);
+  // 선생님이 일차를 수동 지정(오프셋)한 경우 반영
+  try{
+    const off=(typeof CUR!=="undefined" && CUR && CUR.dayAdj!=null) ? parseInt(CUR.dayAdj) : null;
+    if(off!=null && !isNaN(off)) return Math.max(1, base+off);
+  }catch(e){}
+  return base;
+}
+/* 특정 학생의 일차(오프셋 포함) — 선생님 화면용 */
+function dayNumberOf(st){
+  const s=parseYMD(st&&st.start);
+  if(!s) return 1;
+  const n=new Date(); n.setHours(0,0,0,0); s.setHours(0,0,0,0);
+  const base=Math.max(1, Math.floor((n-s)/DAY)+1);
+  const off=(st&&st.dayAdj!=null)?parseInt(st.dayAdj):null;
+  return (off!=null&&!isNaN(off))?Math.max(1,base+off):base;
 }
 function totalDays(months){return Math.max(28,(parseInt(months)||3)*28);}
 function daysLeft(s){ // 수강 종료까지 남은 일수
-  const end=new Date(s.start+"T00:00:00"); end.setMonth(end.getMonth()+(parseInt(s.months)||3));
+  const end=parseYMD(s.start)||new Date(); end.setMonth(end.getMonth()+(parseInt(s.months)||3));
   const n=new Date(); n.setHours(0,0,0,0); end.setHours(0,0,0,0);
   return Math.ceil((end-n)/DAY);
 }
@@ -1619,7 +1679,11 @@ function setRole(r){
   document.getElementById("rsTeacher").classList.toggle("on",r==="teacher");
   document.getElementById("studentView").classList.toggle("hidden",r!=="student");
   document.getElementById("teacherView").classList.toggle("hidden",r!=="teacher");
-  if(r==="teacher") renderStudents();
+  if(r==="teacher"){
+    renderStudents();
+    // 클라우드에서 학생 명단 복구 (다른 기기/브라우저에서도 보이게)
+    cloudLoadRoster(function(changed){ if(changed) renderStudents(); });
+  }
 }
 function setTab(t){
   ["stu","board","card","help"].forEach(x=>{
@@ -1643,23 +1707,61 @@ function addStudent(){
   const arr=students();
   arr.push({name,level,months,start});
   setStudents(arr);
+  cloudSaveRoster(arr);          // 클라우드에도 학생 명단 저장
   document.getElementById("fName").value="";
   renderStudents();
   showLinkFor(arr.length-1);
+}
+
+/* ===== 학생 명단 클라우드 동기화 =====
+   목적: 선생님이 다른 기기/브라우저로 접속해도 학생 목록이 보이게 */
+function cloudSaveRoster(arr){
+  try{
+    if(!CLOUD||!DB) return;
+    whenAuth().then(function(){
+      DB.collection("roster").doc("teacher").set(
+        { students: arr||[], updatedAt: Date.now() }, {merge:true}
+      ).catch(function(e){ console.warn("roster save fail", e&&e.code); });
+    });
+  }catch(e){}
+}
+/* 클라우드 명단을 불러와 로컬과 합치기 (이름+시작일 기준 중복 제거) */
+function cloudLoadRoster(cb){
+  try{
+    if(!CLOUD||!DB){ cb&&cb(false); return; }
+    whenAuth().then(function(){
+      DB.collection("roster").doc("teacher").get().then(function(doc){
+        if(!doc.exists){ cb&&cb(false); return; }
+        const cloud=(doc.data()&&doc.data().students)||[];
+        const local=students();
+        const key=function(x){ return (x.name||"")+"|"+(x.start||""); };
+        const map={};
+        // 클라우드 먼저 → 로컬이 덮어씀(로컬의 최신 dayAdj/extra 우선)
+        cloud.forEach(function(x){ map[key(x)]=x; });
+        local.forEach(function(x){ map[key(x)]=Object.assign({}, map[key(x)]||{}, x); });
+        const merged=Object.keys(map).map(function(k){ return map[k]; });
+        setStudents(merged);
+        cb&&cb(merged.length>local.length);
+      }).catch(function(e){ console.warn("roster load fail", e&&e.code); cb&&cb(false); });
+    });
+  }catch(e){ cb&&cb(false); }
 }
 function renderStudents(){
   const arr=students(); const box=document.getElementById("stuList");
   document.getElementById("stuCount").textContent=arr.length?("· "+arr.length+"명"):"";
   if(!arr.length){box.innerHTML='<div class="empty">아직 등록된 학생이 없어요.<br>위에서 첫 학생을 등록해 보세요 🙂</div>';return;}
   box.innerHTML=arr.map((s,i)=>{
-    const p=loadProg(s); const d=dayNumber(s.start);
+    const p=loadProg(s); const d=dayNumberOf(s);
+    const adjTxt=(s.dayAdj?` <span class="muted">(수동 ${s.dayAdj>0?"+":""}${s.dayAdj})</span>`:"");
     return `<div class="stu">
       <div class="av">${(s.name||"?")[0]}</div>
       <div class="info">
         <div class="nm">${s.name} <span class="muted">· ${s.level}</span> <span class="dday ${daysLeft(s)<=7?'soon':''}">${ddayLabel(s)}</span></div>
-        <div class="dt">${s.months}개월 · 시작 ${s.start} · 오늘 Day ${d} · 완료 ${doneCount(p)}일</div>
+        <div class="dt">${s.months}개월 · 시작 ${s.start} · 오늘 Day ${d}${adjTxt} · 완료 ${doneCount(p)}일</div>
       </div>
       <div class="acts">
+        <button class="icon-btn" title="일차 수정" onclick="editDayFor(${i})">📅</button>
+        <button class="icon-btn" title="추가 숙제" onclick="extraFor(${i})">➕</button>
         <button class="icon-btn" title="링크" onclick="showLinkFor(${i})">🔗</button>
         <button class="icon-btn" title="미리보기" onclick="previewStudent(${i})">👁️</button>
         <button class="icon-btn" title="삭제" onclick="delStudent(${i})">🗑️</button>
@@ -1667,6 +1769,94 @@ function renderStudents(){
       <div id="link${i}"></div>`;
   }).join("");
 }
+/* ===== 명단 복구: 클라우드 roster ===== */
+function manualRestore(){
+  const box=document.getElementById("stuList");
+  const before=students().length;
+  box.innerHTML='<div class="empty">클라우드에서 불러오는 중…</div>';
+  cloudLoadRoster(function(){
+    renderStudents();
+    const after=students().length;
+    if(after>before) alert("학생 "+(after-before)+"명을 불러왔어요 🙂");
+    else if(after===0) alert("클라우드에 저장된 학생 명단이 없어요.\n아래 '숙제기록으로 명단 복구'를 눌러보세요.");
+    else alert("이미 최신 상태예요.");
+  });
+}
+
+/* ===== 명단 복구: 숙제 완료 기록(students 컬렉션)에서 되살리기 =====
+   학생들이 숙제를 한 기록은 클라우드에 남아있으므로, 그것으로 명단을 복원 */
+function restoreFromBoard(){
+  if(!CLOUD||!DB){ alert("클라우드에 연결되어 있지 않아요."); return; }
+  const box=document.getElementById("stuList");
+  box.innerHTML='<div class="empty">숙제 기록에서 학생을 찾는 중…</div>';
+  whenAuth().then(function(){
+    DB.collection("students").get().then(function(snap){
+      if(snap.empty){ renderStudents(); alert("숙제 기록이 없어요."); return; }
+      const local=students();
+      const key=function(x){ return (x.name||"")+"|"+(x.start||""); };
+      const map={}; local.forEach(function(x){ map[key(x)]=x; });
+      let added=0;
+      snap.forEach(function(doc){
+        const v=doc.data()||{};
+        if(!v.name||!v.start) return;
+        const k=v.name+"|"+v.start;
+        if(!map[k]){
+          map[k]={name:v.name, level:v.level||"왕초보",
+                  months:v.months||3, start:v.start};
+          added++;
+        }
+      });
+      const merged=Object.keys(map).map(function(k){ return map[k]; });
+      setStudents(merged);
+      cloudSaveRoster(merged);      // 복구한 명단을 클라우드에도 저장
+      renderStudents();
+      alert(added? ("학생 "+added+"명을 숙제 기록에서 복구했어요 🙂")
+                 : "새로 복구할 학생이 없어요. 이미 모두 있습니다.");
+    }).catch(function(e){
+      renderStudents();
+      alert("불러오지 못했어요. 잠시 후 다시 시도해 주세요.\n("+(e&&e.code||"error")+")");
+    });
+  });
+}
+
+/* ===== 선생님: 학생 일차 수동 지정 ===== */
+function editDayFor(i){
+  const arr=students(); const s=arr[i]; if(!s) return;
+  const cur=dayNumberOf(s);
+  const v=prompt(
+    s.name+"님의 숙제 일차를 지정하세요.\n\n현재: Day "+cur+
+    "\n(원하는 일차 숫자를 입력하면 그 일차로 맞춰집니다)",
+    cur);
+  if(v===null) return;
+  const want=parseInt(String(v).replace(/[^0-9]/g,""));
+  if(!want||want<1){ alert("1 이상의 숫자를 입력해 주세요."); return; }
+  // 날짜 기준 일차
+  const base=(function(){
+    const st=parseYMD(s.start); if(!st) return 1;
+    const n=new Date(); n.setHours(0,0,0,0); st.setHours(0,0,0,0);
+    return Math.max(1, Math.floor((n-st)/DAY)+1);
+  })();
+  s.dayAdj = want - base;         // 오프셋 저장(날짜가 흘러도 상대 유지)
+  arr[i]=s; setStudents(arr); cloudSaveRoster(arr); renderStudents();
+  alert(s.name+"님의 숙제가 Day "+want+"로 설정되었어요.\n\n⚠️ 링크가 새로 만들어졌으니, 🔗 버튼을 눌러 새 링크를 학생에게 다시 보내주세요.");
+  showLinkFor(i);
+}
+
+/* ===== 선생님: 추가 숙제(현지 표현 등) 지정 ===== */
+function extraFor(i){
+  const arr=students(); const s=arr[i]; if(!s) return;
+  const cur=(s.extra||0);
+  const v=prompt(
+    s.name+"님에게 하루 추가로 줄 숙제 개수를 정하세요.\n\n"+
+    "0 = 기본(추가 없음)\n1~3 = 현지 표현·심화 문장을 그만큼 더 출제\n\n현재: "+cur+"개",
+    cur);
+  if(v===null) return;
+  const n=Math.max(0, Math.min(3, parseInt(String(v).replace(/[^0-9]/g,""))||0));
+  s.extra=n; arr[i]=s; setStudents(arr); cloudSaveRoster(arr); renderStudents();
+  alert(s.name+"님 추가 숙제: "+(n?n+"개 (현지 표현·심화)":"없음")+"\n\n⚠️ 🔗 버튼을 눌러 새 링크를 학생에게 다시 보내주세요.");
+  showLinkFor(i);
+}
+
 function showLinkFor(i){
   const s=students()[i]; if(!s)return;
   const link=studentLink(s);
@@ -1685,7 +1875,7 @@ function copyLink(enc,btn){
 }
 function delStudent(i){
   const a=students(); const s=a[i]; if(!s)return;
-  if(!confirm(s.name+"님을 삭제할까요?\n숙제 현황·진행 기록도 함께 삭제됩니다. (되돌릴 수 없어요)"))return;
+  if(!confirm(s.name+"님을 삭제할까요?\n삭제하면 이 학생은 링크로 접속할 수 없고, 기록도 삭제됩니다. (되돌릴 수 없어요)"))return;
   // 로컬 정리
   try{ localStorage.removeItem(progKey(s)); localStorage.removeItem("we_board_"+s.name+"_"+s.start); }catch(e){}
   // 클라우드 정리 (숙제 현황에서도 제거)
@@ -1699,7 +1889,7 @@ function cloudDeleteStudent(id){
     return ref.collection("days").get().then(function(snap){
       const ps=[]; snap.forEach(function(d){ ps.push(d.ref.delete()); });
       return Promise.all(ps);
-    }).then(function(){ return ref.delete(); }).catch(function(){});
+    }).then(function(){ return ref.set({blocked:true, prog:null, updatedAt:Date.now()},{merge:true}); }).catch(function(){});
   });
 }
 function previewLink(o){return location.origin+location.pathname+"?pv=1#"+encodeStudent(o);}
@@ -1748,7 +1938,7 @@ function addCard(){
 
 /* ================= 학생: 진입 ================= */
 function bootStudent(){
-  const s=decodeStudent(location.hash);
+  const s=currentStudent();
   if(s){startStudy(s,true);}
   else{document.getElementById("noStudent").classList.remove("hidden");}
 }
@@ -1759,6 +1949,7 @@ function loadDemo(){
   startStudy(demo,true);
 }
 function startStudy(s,entry){
+  if(typeof isBlockedCached==="function" && isBlockedCached(s)){ CUR=s; showBlockScreen(); return; }
   CUR=s;
   document.getElementById("noStudent").classList.add("hidden");
   document.getElementById("studyRoom").classList.remove("hidden");
@@ -1786,12 +1977,31 @@ function startStudy(s,entry){
   const tk=todayKey();
   if(!p.assigned) p.assigned={};
   if(p.assigned[tk]==null){
-    p.assigned[tk]=(p.cursor||0)%lib.length;
-    p.cursor=((p.cursor||0)+1)%lib.length;
+    // 선생님이 일차를 지정한 경우 → 그 일차에 해당하는 패턴부터 출제
+    let base=(p.cursor||0);
+    if(s.dayAdj!=null && !isNaN(parseInt(s.dayAdj)) && !p.adjApplied){
+      base=Math.max(0, d-1);          // d = 화면에 표시되는 현재 일차
+      p.cursor=base; p.adjApplied=true;
+    }
+    p.assigned[tk]=base%lib.length;
+    p.cursor=(base+1)%lib.length;
     saveProg(s,p);
   }
   CARD=lib[p.assigned[tk]%lib.length];
   STEPS=(CARD.exp&&CARD.exp.length)?CARD.exp.slice():[[CARD.sent,CARD.trans]];
+  // ── 추가 숙제(현지 표현·심화): 선생님이 지정한 개수만큼 문장 더 붙이기 ──
+  try{
+    const ex=Math.max(0, Math.min(3, parseInt(s.extra)||0));
+    if(ex>0){
+      const baseIdx=p.assigned[tk]%lib.length;
+      for(let k=1;k<=ex;k++){
+        const c=lib[(baseIdx+k*7)%lib.length];   // 겹치지 않게 간격 두고 선택
+        if(!c) continue;
+        const pair=(c.exp&&c.exp[0])?[c.exp[0][0],c.exp[0][1]]:[c.sent,c.trans];
+        if(pair[0]) STEPS.push(pair);
+      }
+    }
+  }catch(e){}
   STEP=0;
   DAY_SCORES=[];
   renderCard();
@@ -1931,10 +2141,21 @@ async function toggleRec(){
   }
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    mediaRec=new MediaRecorder(stream);chunks=[];
+    // iOS Safari는 webm 미지원 → 지원되는 형식을 골라서 사용
+    let opts={};
+    try{
+      const cands=["audio/mp4","audio/aac","audio/webm;codecs=opus","audio/webm","audio/ogg;codecs=opus"];
+      for(const t of cands){
+        if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)){ opts={mimeType:t}; break; }
+      }
+    }catch(e){}
+    try{ mediaRec=new MediaRecorder(stream,opts); }
+    catch(e){ mediaRec=new MediaRecorder(stream); }   // 옵션 실패 시 기본값
+    chunks=[];
     mediaRec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
     mediaRec.onstop=()=>{
-      lastBlob=new Blob(chunks,{type:chunks[0]?chunks[0].type:"audio/webm"});
+      const mt=(mediaRec&&mediaRec.mimeType)||(chunks[0]&&chunks[0].type)||"audio/mp4";
+      lastBlob=new Blob(chunks,{type:mt});
       const url=URL.createObjectURL(lastBlob);
       document.getElementById("myAudio").src=url;
       document.getElementById("afterRec").classList.remove("hidden");
@@ -2190,7 +2411,7 @@ function renderReview(s){
     const idx=(p.assigned&&p.assigned[d]!=null)?p.assigned[d]:null; if(idx==null) continue;
     const c=lib[idx%lib.length]; if(!c||seen[c.tag]) continue; seen[c.tag]=1;
     const en=(c.exp&&c.exp[0])?c.exp[0][0]:c.sent, ko=(c.exp&&c.exp[0])?c.exp[0][1]:c.trans;
-    const daysAgo=Math.max(1,Math.round((new Date(tk+"T00:00:00")-new Date(d+"T00:00:00"))/DAY));
+    const daysAgo=Math.max(1,Math.round(((parseYMD(tk)||new Date())-(parseYMD(d)||new Date()))/DAY));
     REVIEW_ITEMS.push({en,ko,tag:c.tag,daysAgo});
   }
   // 이어 말하기 (중급·고급만)
@@ -2355,7 +2576,7 @@ function renderBoard(){
       if(snap.empty){ box.innerHTML='<div class="empty">아직 숙제를 완료한 학생이 없어요.<br>학생이 첫 숙제를 끝내면 여기에 실시간으로 떠요 🙂</div>'; return; }
       const tk=todayKey(); let html="";
       snap.forEach(function(doc){
-        const v=doc.data(); const d=dayNumber(v.start);
+        const v=doc.data(); if(v.blocked) return; const d=dayNumber(v.start);
         const conf=JSON.parse(localStorage.getItem("we_board_"+v.name+"_"+v.start)||'{"note":""}');
         const todayDone=(v.lastDate===tk);
         const left=daysLeft({start:v.start,months:v.months});
@@ -2377,7 +2598,7 @@ function renderBoard(){
           <textarea class="board-note" placeholder="${v.name}님 피드백 메모" onchange="saveCloudNote('${v.name}','${v.start}',this.value)">${conf.note||""}</textarea>
         </div>`;
       });
-      box.innerHTML=html;
+      box.innerHTML=html||'<div class="empty">아직 숙제를 완료한 학생이 없어요.</div>';
     }, function(err){ box.innerHTML='<div class="empty">현황을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</div>'; });
     });
     return;
@@ -2448,7 +2669,7 @@ function aiToggleBlock(id,block){
 }
 // 현황 보드에서 학생 삭제 (클라우드 + 로컬 명단/기록)
 function boardDelete(id,name){
-  if(!confirm((name||"이 학생")+"님을 삭제할까요?\n숙제 현황·기록이 모두 삭제됩니다. (되돌릴 수 없어요)"))return;
+  if(!confirm((name||"이 학생")+"님을 삭제할까요?\n삭제하면 이 학생은 링크로 접속할 수 없고, 기록도 삭제됩니다. (되돌릴 수 없어요)"))return;
   cloudDeleteStudent(id);
   // 로컬 학생 명단에서도 동일 id 제거
   try{
@@ -2543,8 +2764,10 @@ function openExternal(){
   if(/KAKAOTALK/i.test(ua)){ location.href="kakaotalk://web/openExternal?url="+encodeURIComponent(url); return; }
   if(/Line\//i.test(ua)){ location.href=url+(url.indexOf("?")>=0?"&":"?")+"openExternalBrowser=1"; return; }
   if(/android/i.test(ua)){
-    const noScheme=url.replace(/^https?:\/\//,"");
-    location.href="intent://"+noScheme+"#Intent;scheme=https;package=com.android.chrome;end";
+    // 주의: url에 #해시가 있으면 intent 문법(#Intent)과 충돌해 학생 정보가 날아감 → 해시 제거(?s= 형식이라 안전)
+    const clean=url.split("#")[0];
+    const noScheme=clean.replace(/^https?:\/\//,"");
+    location.href="intent://"+noScheme+"#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url="+encodeURIComponent(clean)+";end";
     return;
   }
   // iOS 등: 강제 불가 → 주소 복사 안내
@@ -2688,22 +2911,49 @@ addEventListener("orientationchange",function(){setTimeout(fitApp,200);});
 
 function init(){
   fitApp();
-  initCloud();
   const fs=document.getElementById("fStart"); if(fs)fs.value=todayKey();
-  const s=decodeStudent(location.hash);
+  const s=currentStudent();
   if(s){
-    // 학생 링크 (study.html#s=...) = 항상 학생 (선생님 메뉴 숨김)
+    // 학생 링크 (?s=... 또는 옛 #s=...) = 항상 학생 (선생님 메뉴 숨김)
+    try{ // 주소를 안전한 ?s= 형태로 통일 → 외부 브라우저 열기/홈화면 추가/재공유에도 학생 정보 유지
+      const q="?"+encodeStudent(s);
+      if(location.search!==q) history.replaceState(null,"",location.pathname+q);
+      localStorage.setItem("we_last_link",encodeStudent(s)); // 이 기기의 학생 기억
+    }catch(e){}
     lockStudent();
-    bootStudent();
+    startStudy(s,true);
     return;
   }
-  // 기본 주소 (study.html) = 항상 선생님
+  // 링크 정보가 사라진 채 열린 경우(메신저/브라우저 전환 사고):
+  // 이 기기에서 마지막으로 쓰던 학생을 자동 복원 (선생님 기기는 학생 목록이 있으므로 제외)
+  try{
+    if(!students().length){
+      const last=localStorage.getItem("we_last_link");
+      if(last){const ls=decodeStudent(last);
+        if(ls){ history.replaceState(null,"",location.pathname+"?"+last);
+          lockStudent(); startStudy(ls,true); return; } }
+    }
+  }catch(e){}
+  // 기본 주소 (study.html) = 선생님
   const rsw=document.getElementById("roleSwitch"); if(rsw)rsw.classList.remove("hidden");
+  // 체험(민지) 버튼은 선생님 기기에서만 노출 — 학생이 남의 이름으로 들어가는 사고 방지
+  const dw=document.getElementById("demoWrap"); if(dw && students().length) dw.classList.remove("hidden");
   bootStudent();
   renderStudents();
 }
+/* 클라우드(Firebase)는 화면을 먼저 띄운 뒤 뒤늦게 연결 → 첫 로딩 체감속도 향상.
+   firebase 스크립트는 defer라 DOMContentLoaded 시점엔 로드 완료됨. */
+function startCloud(){
+  initCloud();
+  if(!CLOUD) return;
+  const s=currentStudent();
+  if(s){ cloudSync(s); }                 // 학생: 차단 확인 + 진행 복원
+  else{ const pb=document.getElementById("paneBoard");
+        if(pb && !pb.classList.contains("hidden")) renderBoard(); }  // 선생님: 현황판 열려있으면 구독 시작
+}
 addEventListener("hashchange",()=>{const s=decodeStudent(location.hash);if(s)startStudy(s,true);});
 init();
+if(document.readyState==="loading") addEventListener("DOMContentLoaded",startCloud); else startCloud();
 </script>
 </body>
 </html>

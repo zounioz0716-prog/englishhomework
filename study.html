@@ -2019,16 +2019,23 @@ function startStudy(s,entry){
   const lib=getLib()[s.level]||getLib()["왕초보"];
   const tk=todayKey();
   if(!p.assigned) p.assigned={};
-  if(p.assigned[tk]==null){
-    // 선생님이 일차를 지정한 경우 → 그 일차에 해당하는 패턴부터 출제
-    let base=(p.cursor||0);
-    if(s.dayAdj!=null && !isNaN(parseInt(s.dayAdj)) && !p.adjApplied){
-      base=Math.max(0, d-1);          // d = 화면에 표시되는 현재 일차
-      p.cursor=base; p.adjApplied=true;
+  /* ── 패턴 배정 규칙 (일차 = 패턴 번호) ──
+     Day 1 → 패턴 0, Day 6 → 패턴 5, Day 30 → 패턴 29 …
+     선생님이 일차를 바꾸면 그 일차의 패턴이 즉시 반영되고,
+     이후 날짜가 지나면 자동으로 다음 패턴이 이어서 나옴. */
+  {
+    const wantIdx=Math.max(0, (d-1)) % lib.length;   // d = 오늘 일차(선생님 조정 반영됨)
+    const adjKey=(s.dayAdj==null?"":String(s.dayAdj));
+    // 선생님이 일차를 변경했으면(=adjKey가 달라짐) 오늘 배정을 새로 맞춘다
+    if(p.adjKey!==adjKey){
+      p.adjKey=adjKey;
+      p.assigned[tk]=wantIdx;
+      saveProg(s,p);
     }
-    p.assigned[tk]=base%lib.length;
-    p.cursor=(base+1)%lib.length;
-    saveProg(s,p);
+    if(p.assigned[tk]==null){
+      p.assigned[tk]=wantIdx;
+      saveProg(s,p);
+    }
   }
   CARD=lib[p.assigned[tk]%lib.length];
   STEPS=(CARD.exp&&CARD.exp.length)?CARD.exp.slice():[[CARD.sent,CARD.trans]];

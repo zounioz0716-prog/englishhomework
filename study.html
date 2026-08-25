@@ -2924,10 +2924,23 @@ function init(){
     startStudy(s,true);
     return;
   }
-  // 링크 정보가 사라진 채 열린 경우(메신저/브라우저 전환 사고):
-  // 이 기기에서 마지막으로 쓰던 학생을 자동 복원 (선생님 기기는 학생 목록이 있으므로 제외)
+  // ?teacher=1 또는 #teacher → 무조건 선생님 방 (학생 자동복원 건너뜀)
+  let FORCE_TEACHER=false;
   try{
-    if(!students().length){
+    const sp=new URLSearchParams(location.search);
+    if(sp.get("teacher")==="1" || location.hash==="#teacher"){
+      FORCE_TEACHER=true;
+      localStorage.setItem("we_is_teacher","1");   // 이 기기는 선생님 기기로 기억
+      localStorage.removeItem("we_last_link");     // 남아있던 학생 자동복원 해제
+    }
+    if(localStorage.getItem("we_is_teacher")==="1") FORCE_TEACHER=true;
+  }catch(e){}
+
+  // 링크 정보가 사라진 채 열린 경우(메신저/브라우저 전환 사고):
+  // 이 기기에서 마지막으로 쓰던 학생을 자동 복원
+  // (선생님 기기 = 학생 목록이 있거나 we_is_teacher 표시가 있으면 제외)
+  try{
+    if(!FORCE_TEACHER && !students().length){
       const last=localStorage.getItem("we_last_link");
       if(last){const ls=decodeStudent(last);
         if(ls){ history.replaceState(null,"",location.pathname+"?"+last);
@@ -2936,6 +2949,7 @@ function init(){
   }catch(e){}
   // 기본 주소 (study.html) = 선생님
   const rsw=document.getElementById("roleSwitch"); if(rsw)rsw.classList.remove("hidden");
+  if(FORCE_TEACHER){ try{ setRole("teacher"); }catch(e){} }
   // 체험(민지) 버튼은 선생님 기기에서만 노출 — 학생이 남의 이름으로 들어가는 사고 방지
   const dw=document.getElementById("demoWrap"); if(dw && students().length) dw.classList.remove("hidden");
   bootStudent();
